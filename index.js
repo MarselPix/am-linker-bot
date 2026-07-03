@@ -167,6 +167,7 @@ function clearActiveSession(chatId) {
  * @returns {Promise<string[]>}
  */
 async function fetchAllAlightLinks(user, domain) {
+  // 1. Fetch halaman utama inbox
   const url = `https://generator.email/${domain}/${user}`;
   const response = await fetch(url, {
     headers: {
@@ -181,7 +182,52 @@ async function fetchAllAlightLinks(user, domain) {
   }
 
   const html = await response.text();
-  return extractAlightLinks(html);
+
+  // 2. Cari semua link email spesifik di list
+  const rowRegex = /href=["'](\/[a-zA-Z0-9.\-_]+\/[a-zA-Z0-9.\-_]+\/[a-f0-9]{32})["'][^>]*>\s*<div class="[^"]*from_div_[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+  
+  let match;
+  const alightPaths = [];
+  while ((match = rowRegex.exec(html)) !== null) {
+    const path = match[1];
+    const sender = match[2].trim().toLowerCase();
+    
+    // Cek apakah email berasal dari Alight Motion
+    if (sender.includes('alight') || sender.includes('firebaseapp')) {
+      alightPaths.push(path);
+    }
+  }
+
+  // Jika tidak ditemukan email spesifik dari Alight di list
+  if (alightPaths.length === 0) {
+    // Fallback: coba langsung ekstrak dari halaman utama (jika hanya ada 1 email biasanya ter-render langsung)
+    return extractAlightLinks(html);
+  }
+
+  // 3. Ambil isi email dari path terbaru (indeks 0, email paling baru)
+  // Format newestPath: /domain/user/hash
+  const newestPath = alightPaths[0];
+  const parts = newestPath.split('/');
+  const hash = parts[3]; // Ambil hash di paling belakang
+  
+  // generator.email membutuhkan surl cookie bernilai "domain/user/hash" agar mau mengembalikan isi email
+  const specificSurl = `${domain}%2F${user}%2F${hash}`;
+  const emailUrl = `https://generator.email/`;
+  
+  const emailRes = await fetch(emailUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Cookie': `embx=%5B%22${user}%40${domain}%22%5D; surl=${specificSurl}`,
+      'Referer': 'https://generator.email/'
+    }
+  });
+
+  if (!emailRes.ok) {
+    throw new Error(`HTTP error fetching email body! status: ${emailRes.status}`);
+  }
+
+  const emailHtml = await emailRes.text();
+  return extractAlightLinks(emailHtml);
 }
 
 /**
