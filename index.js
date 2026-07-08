@@ -87,39 +87,44 @@ bot.on('message', async (msg) => {
 
     try {
       // 1. Cek langsung ke inbox saat pertama kali email dikirim
-      const currentLinks = await fetchAllAlightLinks(user, domain);
+      const result = await fetchNewestAlightLink(user, domain, null);
       
-      if (currentLinks.length > 0) {
+      if (result.link) {
         // Jika langsung menemukan link, kirimkan segera dan selesai!
-        const latestLink = currentLinks[0];
-        bot.sendMessage(chatId, `✅ <b>Link Login Alight Motion Ditemukan!</b>\n\n<b>1. Klik untuk Langsung Login:</b>\n<a href="${latestLink}">👉 Klik di Sini untuk Login</a>\n\n<b>2. Klik untuk Salin Link (Auto Copy):</b>\n<code>${latestLink}</code>\n\n⚠️ <i>Catatan: Jika link di atas kadaluarsa atau tidak bekerja, silakan lakukan permintaan login baru di aplikasi Alight Motion, lalu kirim kembali alamat email kamu ke bot ini.</i>`, { parse_mode: 'HTML' });
+        bot.sendMessage(chatId, `✅ <b>Link Login Alight Motion Ditemukan!</b>\n\n<b>1. Klik untuk Langsung Login:</b>\n<a href="${result.link}">👉 Klik di Sini untuk Login</a>\n\n<b>2. Klik untuk Salin Link (Auto Copy):</b>\n<code>${result.link}</code>\n\n⚠️ <i>Catatan: Jika link di atas kadaluarsa atau tidak bekerja, silakan lakukan permintaan login baru di aplikasi Alight Motion, lalu kirim kembali alamat email kamu ke bot ini.</i>`, { parse_mode: 'HTML' });
         return;
       }
 
       // 2. Jika belum ada link, masuk ke mode pemantauan (polling) selama 3 menit
       bot.sendMessage(chatId, `🔍 <b>Link login belum ditemukan di inbox.</b>\n\nMemulai pemantauan untuk: <code>${email}</code>\nBot akan memantau inbox selama 3 menit. Silakan lakukan permintaan login di aplikasi Alight Motion sekarang...`, { parse_mode: 'HTML' });
 
-      const existingLinks = new Set(currentLinks);
+      // Catat hash yang sudah ada (biar diabaikan saat polling)
+      const existingHashes = new Set();
+      if (result.newestHash) {
+        existingHashes.add(result.newestHash);
+      }
 
-      // Setup polling interval (setiap 5 detik)
+      // Setup polling interval (setiap 8 detik)
       const intervalId = setInterval(async () => {
         try {
-          const links = await fetchAllAlightLinks(user, domain);
-          
-          // Cari link baru yang belum ada di initial check
-          const newLink = links.find(link => !existingLinks.has(link));
+          // Cari link baru dengan mengabaikan hash lama
+          const pollResult = await fetchNewestAlightLink(user, domain, existingHashes);
 
-          if (newLink) {
+          if (pollResult.link) {
             // Berhasil menemukan link baru!
-            bot.sendMessage(chatId, `✅ <b>Link Login Alight Motion Ditemukan!</b>\n\n<b>1. Klik untuk Langsung Login:</b>\n<a href="${newLink}">👉 Klik di Sini untuk Login</a>\n\n<b>2. Klik untuk Salin Link (Auto Copy):</b>\n<code>${newLink}</code>`, { parse_mode: 'HTML' });
+            bot.sendMessage(chatId, `✅ <b>Link Login Alight Motion Ditemukan!</b>\n\n<b>1. Klik untuk Langsung Login:</b>\n<a href="${pollResult.link}">👉 Klik di Sini untuk Login</a>\n\n<b>2. Klik untuk Salin Link (Auto Copy):</b>\n<code>${pollResult.link}</code>`, { parse_mode: 'HTML' });
             
             // Hentikan pemantauan
             clearActiveSession(chatId);
+          } else if (pollResult.newestHash) {
+            // Jika ada hash baru tapi link tidak berhasil diekstrak (jarang terjadi),
+            // kita masukkan ke ignore list
+            existingHashes.add(pollResult.newestHash);
           }
         } catch (pollErr) {
           console.error(`[${email}] Error saat polling:`, pollErr.message);
         }
-      }, 5000);
+      }, 8000);
 
       // Setup timeout (3 menit = 180000 ms)
       const timeoutId = setTimeout(() => {
@@ -132,7 +137,7 @@ bot.on('message', async (msg) => {
         intervalId,
         timeoutId,
         email,
-        existingLinks
+        existingHashes
       };
 
     } catch (err) {
@@ -161,89 +166,95 @@ function clearActiveSession(chatId) {
 }
 
 /**
- * Mengambil semua link Alight Motion yang ada saat ini di inbox
- * @param {string} user 
- * @param {string} domain 
- * @returns {Promise<string[]>}
+ * Custom fetch helper dengan support timeout
+ * @param {string} url 
+ * @param {object} options 
+ * @param {number} timeoutMs 
+ * @returns {Promise<string>}
  */
-async function fetchAllAlightLinks(user, domain) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+    return await res.text();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
+}
+
+/**
+ * Mencari link Alight Motion baru di inbox dengan mencocokkan list hash
+ * @param {string} user
+ * @param {string} domain
+ * @param {Set<string>} ignoreHashes Hash yang akan diabaikan (karena sudah ada sebelumnya)
+ * @returns {Promise<{ link: string | null, newestHash: string | null }>}
+ */
+async function fetchNewestAlightLink(user, domain, ignoreHashes) {
   // 1. Fetch halaman utama inbox
-  const url = `https://generator.email/${domain}/${user}`;
-  const response = await fetch(url, {
+  const indexUrl = `https://generator.email/${domain}/${user}`;
+  const indexHtml = await fetchWithTimeout(indexUrl, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Cookie': `embx=%5B%22${user}%40${domain}%22%5D; surl=${domain}%2F${user}`,
       'Referer': 'https://generator.email/'
     }
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-  }
-
-  const html = await response.text();
+  }, 8000);
 
   // 2. Cari semua link email spesifik di list
   const rowRegex = /href=["'](\/[a-zA-Z0-9.\-_]+\/[a-zA-Z0-9.\-_]+\/[a-f0-9]{32})["'][^>]*>\s*<div class="[^"]*from_div_[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
   
   let match;
-  const alightPaths = [];
-  while ((match = rowRegex.exec(html)) !== null) {
+  const alightHashes = [];
+  while ((match = rowRegex.exec(indexHtml)) !== null) {
     const path = match[1];
     const sender = match[2].trim().toLowerCase();
     
     // Cek apakah email berasal dari Alight Motion
     if (sender.includes('alight') || sender.includes('firebaseapp')) {
-      alightPaths.push(path);
+      const parts = path.split('/');
+      const hash = parts[3]; // Ambil hash di paling belakang
+      if (hash) {
+        alightHashes.push(hash);
+      }
     }
   }
 
   // Jika tidak ditemukan email spesifik dari Alight di list
-  if (alightPaths.length === 0) {
-    // Fallback: coba langsung ekstrak dari halaman utama (jika hanya ada 1 email biasanya ter-render langsung)
-    return extractAlightLinks(html);
+  if (alightHashes.length === 0) {
+    // Fallback: coba langsung ekstrak dari halaman utama
+    const links = extractAlightLinks(indexHtml);
+    return { link: links[0] || null, newestHash: null };
   }
 
-  // 3. Ambil isi email dari path terbaru (indeks 0, email paling baru)
-  // Format newestPath: /domain/user/hash
-  const newestPath = alightPaths[0];
-  const parts = newestPath.split('/');
-  const hash = parts[3]; // Ambil hash di paling belakang
-  
-  // generator.email membutuhkan surl cookie bernilai "domain/user/hash" agar mau mengembalikan isi email
-  const specificSurl = `${domain}%2F${user}%2F${hash}`;
+  const newestHash = alightHashes[0];
+
+  // Jika hash terbaru sudah ada sebelumnya, abaikan (hemat request)
+  if (ignoreHashes && ignoreHashes.has(newestHash)) {
+    return { link: null, newestHash };
+  }
+
+  // 3. Ambil isi email spesifik (karena ada hash baru)
+  const specificSurl = `${domain}%2F${user}%2F${newestHash}`;
   const emailUrl = `https://generator.email/`;
   
-  const emailRes = await fetch(emailUrl, {
+  const emailHtml = await fetchWithTimeout(emailUrl, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Cookie': `embx=%5B%22${user}%40${domain}%22%5D; surl=${specificSurl}`,
       'Referer': 'https://generator.email/'
     }
-  });
+  }, 8000);
 
-  if (!emailRes.ok) {
-    throw new Error(`HTTP error fetching email body! status: ${emailRes.status}`);
-  }
-
-  const emailHtml = await emailRes.text();
-  return extractAlightLinks(emailHtml);
-}
-
-/**
- * Mengambil link Alight Motion saat pertama kali memantau (untuk blacklist/ignored)
- * @param {string} user 
- * @param {string} domain 
- * @returns {Promise<Set<string>>}
- */
-async function fetchExistingLinks(user, domain) {
-  try {
-    const links = await fetchAllAlightLinks(user, domain);
-    return new Set(links);
-  } catch (err) {
-    console.error('Gagal mengambil initial links:', err.message);
-    return new Set();
-  }
+  const links = extractAlightLinks(emailHtml);
+  return { link: links[0] || null, newestHash };
 }
 
 /**
