@@ -142,7 +142,7 @@ bot.on('message', async (msg) => {
 
     } catch (err) {
       console.error(`[${email}] Gagal mengakses generator.email:`, err);
-      bot.sendMessage(chatId, '❌ Gagal mengakses generator.email. Pastikan email yang dimasukkan benar dan coba lagi beberapa saat lagi.', { parse_mode: 'HTML' });
+      bot.sendMessage(chatId, `❌ <b>Gagal mengakses generator.email:</b>\n<code>${err.message}</code>\n\nPastikan email yang dimasukkan benar dan coba lagi beberapa saat lagi.`, { parse_mode: 'HTML' });
     }
   } else {
     // Jika input bukan email dan bukan command
@@ -172,7 +172,7 @@ function clearActiveSession(chatId) {
  * @param {number} timeoutMs 
  * @returns {Promise<string>}
  */
-async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   
@@ -204,9 +204,12 @@ async function fetchNewestAlightLink(user, domain, ignoreHashes) {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Cookie': `embx=%5B%22${user}%40${domain}%22%5D; surl=${domain}%2F${user}`,
-      'Referer': 'https://generator.email/'
+      'Referer': 'https://generator.email/',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Connection': 'keep-alive'
     }
-  }, 8000);
+  }, 15000);
 
   // 2. Cari semua link email spesifik di list
   const rowRegex = /href=["'](\/[a-zA-Z0-9.\-_]+\/[a-zA-Z0-9.\-_]+\/[a-f0-9]{32})["'][^>]*>\s*<div class="[^"]*from_div_[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
@@ -249,9 +252,12 @@ async function fetchNewestAlightLink(user, domain, ignoreHashes) {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Cookie': `embx=%5B%22${user}%40${domain}%22%5D; surl=${specificSurl}`,
-      'Referer': 'https://generator.email/'
+      'Referer': 'https://generator.email/',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Connection': 'keep-alive'
     }
-  }, 8000);
+  }, 15000);
 
   const links = extractAlightLinks(emailHtml);
   return { link: links[0] || null, newestHash };
