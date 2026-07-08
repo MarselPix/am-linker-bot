@@ -34,8 +34,8 @@ const bot = new TelegramBot(token, { polling: true });
 // Struktur: { chatId: { intervalId, timeoutId, email, existingLinks } }
 const sessions = {};
 
-// Regex untuk mendeteksi email
-const emailRegex = /^[a-zA-Z0-9.\-_]+@[a-zA-Z0-9.\-_]+\.[a-zA-Z]{2,}$/;
+// Regex untuk mendeteksi email di dalam pesan
+const emailRegex = /[a-zA-Z0-9.\-_]+@[a-zA-Z0-9.\-_]+\.[a-zA-Z]{2,}/;
 
 console.log('Bot Telegram Alight Motion Linker berhasil dijalankan!');
 
@@ -72,9 +72,10 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // Cek apakah pesan adalah alamat email
-  if (emailRegex.test(text)) {
-    const email = text.toLowerCase();
+  // Cek apakah pesan mengandung alamat email
+  const emailMatch = text.match(emailRegex);
+  if (emailMatch) {
+    const email = emailMatch[0].toLowerCase();
     const parts = email.split('@');
     const user = parts[0];
     const domain = parts[1];
