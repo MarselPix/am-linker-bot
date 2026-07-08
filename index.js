@@ -166,28 +166,76 @@ function clearActiveSession(chatId) {
 }
 
 /**
- * Custom fetch helper dengan support timeout
+ * Custom fetch helper dengan support timeout dan automatic retries
  * @param {string} url 
  * @param {object} options 
  * @param {number} timeoutMs 
+ * @param {number} retries 
  * @returns {Promise<string>}
  */
-async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(timeoutId);
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     
-    if (!res.ok) {
-      throw new Error(`HTTP error! status: ${res.status}`);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeoutId);
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      return await res.text();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      
+      // Jika ini adalah percobaan terakhir, lempar errornya
+      if (attempt === retries) {
+        throw err;
+      }
+      
+      // Tampilkan log retry
+      console.log(`[Attempt ${attempt}/${retries}] Fetch failed (${err.message}). Retrying in 1.5s...`);
+      await new Promise(resolve => setTimeout(resolve, 1500));
     }
-    return await res.text();
-  } catch (err) {
-    clearTimeout(timeoutId);
-    throw err;
   }
+}
+
+// List mirror generator.email untuk failover otomatis jika domain utama lambat/diblokir
+const MIRRORS = [
+  'https://generator.email',
+  'https://uk.generator.email',
+  'https://de.generator.email',
+  'https://fr.generator.email'
+];
+
+/**
+ * Mencoba memanggil path tertentu dari list mirror generator.email sampai sukses
+ * @param {string} path 
+ * @param {object} options 
+ * @param {number} timeoutMs 
+ * @returns {Promise<{ text: string, usedMirror: string }>}
+ */
+async function fetchFromMirrors(path, options = {}, timeoutMs = 15000) {
+  let lastError = null;
+  
+  for (let i = 0; i < MIRRORS.length; i++) {
+    const mirror = MIRRORS[i];
+    // Ganti host target jika URL yang di-pass berupa URL lengkap, atau susun URL baru
+    const fullUrl = path.startsWith('http') ? path.replace(/https?:\/\/[^/]+/, mirror) : `${mirror}${path}`;
+    
+    console.log(`[Mirror Attempt ${i + 1}/${MIRRORS.length}] Fetching: ${fullUrl}`);
+    
+    try {
+      const text = await fetchWithTimeout(fullUrl, options, timeoutMs, 1); // Cukup 1x per mirror
+      return { text, usedMirror: mirror };
+    } catch (err) {
+      console.warn(`[Mirror ${mirror}] Failed: ${err.message}`);
+      lastError = err;
+    }
+  }
+  
+  throw lastError || new Error('All generator.email mirrors failed');
 }
 
 /**
@@ -198,9 +246,9 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
  * @returns {Promise<{ link: string | null, newestHash: string | null }>}
  */
 async function fetchNewestAlightLink(user, domain, ignoreHashes) {
-  // 1. Fetch halaman utama inbox
-  const indexUrl = `https://generator.email/${domain}/${user}`;
-  const indexHtml = await fetchWithTimeout(indexUrl, {
+  // 1. Fetch halaman utama inbox dari mirror yang merespon paling cepat
+  const indexPath = `/${domain}/${user}`;
+  const indexResult = await fetchFromMirrors(indexPath, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Cookie': `embx=%5B%22${user}%40${domain}%22%5D; surl=${domain}%2F${user}`,
@@ -210,6 +258,9 @@ async function fetchNewestAlightLink(user, domain, ignoreHashes) {
       'Connection': 'keep-alive'
     }
   }, 15000);
+
+  const indexHtml = indexResult.text;
+  const activeMirror = indexResult.usedMirror;
 
   // 2. Cari semua link email spesifik di list
   const rowRegex = /href=["'](\/[a-zA-Z0-9.\-_]+\/[a-zA-Z0-9.\-_]+\/[a-f0-9]{32})["'][^>]*>\s*<div class="[^"]*from_div_[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
@@ -244,20 +295,20 @@ async function fetchNewestAlightLink(user, domain, ignoreHashes) {
     return { link: null, newestHash };
   }
 
-  // 3. Ambil isi email spesifik (karena ada hash baru)
+  // 3. Ambil isi email spesifik dari mirror yang sama (agar session cookie valid)
   const specificSurl = `${domain}%2F${user}%2F${newestHash}`;
-  const emailUrl = `https://generator.email/`;
+  const emailPath = `/`;
   
-  const emailHtml = await fetchWithTimeout(emailUrl, {
+  const emailHtml = await fetchWithTimeout(`${activeMirror}${emailPath}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Cookie': `embx=%5B%22${user}%40${domain}%22%5D; surl=${specificSurl}`,
-      'Referer': 'https://generator.email/',
+      'Referer': `${activeMirror}/`,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
       'Connection': 'keep-alive'
     }
-  }, 15000);
+  }, 15000, 2); // Coba maksimal 2 kali untuk email body di mirror ini
 
   const links = extractAlightLinks(emailHtml);
   return { link: links[0] || null, newestHash };
