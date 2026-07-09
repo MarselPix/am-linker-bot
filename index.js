@@ -48,16 +48,15 @@ bot.onText(/\/start|\/help/, (msg) => {
 
   const instructions = `<b>Alight Motion Login Assistant</b>
 
-Halo! Bot ini membantu kamu mengambil link login Alight Motion dari generator.email secara real-time langsung ke Telegram.
+Halo! Bot ini membantu kamu mengambil link login Alight Motion dari <b>generator.email</b> atau <b>emailqu.com</b> secara real-time langsung ke Telegram.
 
 <b>Cara Penggunaan:</b>
-1. Salin email dari website generator.email.
-2. Masukkan email tersebut ke aplikasi Alight Motion untuk login.
-3. Kirim alamat email tersebut ke bot ini.
-4. Bot akan memantau inbox email tersebut selama 3 menit.
-5. Begitu link login masuk, bot akan langsung mengirimkannya ke kamu.
+1. Masukkan alamat email dari generator.email / emailqu.com ke aplikasi Alight Motion untuk login.
+2. Kirim alamat email tersebut ke bot ini.
+3. Bot akan memantau inbox email tersebut selama 3 menit.
+4. Begitu link login masuk, bot akan langsung mengirimkannya ke kamu.
 
-Silakan kirim alamat email generator.email kamu sekarang untuk mulai.`;
+Silakan kirim alamat email kamu sekarang untuk mulai.`;
 
   bot.sendMessage(chatId, instructions, { parse_mode: 'HTML' });
 });
