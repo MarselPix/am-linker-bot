@@ -87,63 +87,114 @@ bot.on('message', async (msg) => {
     }
 
     try {
-      // 1. Cek langsung ke inbox saat pertama kali email dikirim
-      const result = await fetchNewestAlightLink(user, domain, null);
-      
-      if (result.link) {
-        // Jika langsung menemukan link, kirimkan segera dan selesai!
-        bot.sendMessage(chatId, `✅ <b>Link Login Alight Motion Ditemukan!</b>\n\n<b>1. Klik untuk Langsung Login:</b>\n<a href="${result.link}">👉 Klik di Sini untuk Login</a>\n\n<b>2. Klik untuk Salin Link (Auto Copy):</b>\n<code>${result.link}</code>\n\n⚠️ <i>Catatan: Jika link di atas kadaluarsa atau tidak bekerja, silakan lakukan permintaan login baru di aplikasi Alight Motion, lalu kirim kembali alamat email kamu ke bot ini.</i>`, { parse_mode: 'HTML' });
-        return;
-      }
+      // Tentukan provider email secara otomatis lewat verify API
+      const provider = await checkEmailProvider(domain);
+      console.log(`[${email}] Domain provider terdeteksi: ${provider}`);
 
-      // 2. Jika belum ada link, masuk ke mode pemantauan (polling) selama 3 menit
-      bot.sendMessage(chatId, `🔍 <b>Link login belum ditemukan di inbox.</b>\n\nMemulai pemantauan untuk: <code>${email}</code>\nBot akan memantau inbox selama 3 menit. Silakan lakukan permintaan login di aplikasi Alight Motion sekarang...`, { parse_mode: 'HTML' });
-
-      // Catat hash yang sudah ada (biar diabaikan saat polling)
-      const existingHashes = new Set();
-      if (result.newestHash) {
-        existingHashes.add(result.newestHash);
-      }
-
-      // Setup polling interval (setiap 8 detik)
-      const intervalId = setInterval(async () => {
-        try {
-          // Cari link baru dengan mengabaikan hash lama
-          const pollResult = await fetchNewestAlightLink(user, domain, existingHashes);
-
-          if (pollResult.link) {
-            // Berhasil menemukan link baru!
-            bot.sendMessage(chatId, `✅ <b>Link Login Alight Motion Ditemukan!</b>\n\n<b>1. Klik untuk Langsung Login:</b>\n<a href="${pollResult.link}">👉 Klik di Sini untuk Login</a>\n\n<b>2. Klik untuk Salin Link (Auto Copy):</b>\n<code>${pollResult.link}</code>`, { parse_mode: 'HTML' });
-            
-            // Hentikan pemantauan
-            clearActiveSession(chatId);
-          } else if (pollResult.newestHash) {
-            // Jika ada hash baru tapi link tidak berhasil diekstrak (jarang terjadi),
-            // kita masukkan ke ignore list
-            existingHashes.add(pollResult.newestHash);
-          }
-        } catch (pollErr) {
-          console.error(`[${email}] Error saat polling:`, pollErr.message);
+      if (provider === 'emailqu') {
+        // --- JALUR EMAILQU.COM ---
+        const result = await fetchNewestEmailQuLink(email);
+        
+        if (result.link) {
+          // Jika langsung menemukan link, kirimkan segera dan selesai!
+          bot.sendMessage(chatId, `✅ <b>Link Login Alight Motion Ditemukan!</b>\n\n<b>1. Klik untuk Langsung Login:</b>\n<a href="${result.link}">👉 Klik di Sini untuk Login</a>\n\n<b>2. Klik untuk Salin Link (Auto Copy):</b>\n<code>${result.link}</code>\n\n⚠️ <i>Catatan: Jika link di atas kadaluarsa atau tidak bekerja, silakan lakukan permintaan login baru di aplikasi Alight Motion, lalu kirim kembali alamat email kamu ke bot ini.</i>`, { parse_mode: 'HTML' });
+          return;
         }
-      }, 8000);
 
-      // Setup timeout (3 menit = 180000 ms)
-      const timeoutId = setTimeout(() => {
-        bot.sendMessage(chatId, `⚠️ <b>Waktu Pemantauan Habis</b>\n\nBot telah memantau email <code>${email}</code> selama 3 menit dan tidak menemukan link baru. Silakan kirim email lagi jika ingin memantau ulang.`, { parse_mode: 'HTML' });
-        clearActiveSession(chatId);
-      }, 180000);
+        // Jika belum ada link, masuk ke mode pemantauan (polling) selama 3 menit
+        bot.sendMessage(chatId, `🔍 <b>Link login belum ditemukan di inbox.</b>\n\nMemulai pemantauan untuk: <code>${email}</code> (via EmailQu)\nBot akan memantau inbox selama 3 menit. Silakan lakukan permintaan login di aplikasi Alight Motion sekarang...`, { parse_mode: 'HTML' });
 
-      // Simpan session
-      sessions[chatId] = {
-        intervalId,
-        timeoutId,
-        email,
-        existingHashes
-      };
+        const existingEmailId = result.emailId;
+
+        // Setup polling interval (setiap 8 detik)
+        const intervalId = setInterval(async () => {
+          try {
+            const pollResult = await fetchNewestEmailQuLink(email);
+
+            // Cek jika ada email baru (ID berbeda dengan existing)
+            if (pollResult.link && pollResult.emailId !== existingEmailId) {
+              bot.sendMessage(chatId, `✅ <b>Link Login Alight Motion Ditemukan!</b>\n\n<b>1. Klik untuk Langsung Login:</b>\n<a href="${pollResult.link}">👉 Klik di Sini untuk Login</a>\n\n<b>2. Klik untuk Salin Link (Auto Copy):</b>\n<code>${pollResult.link}</code>`, { parse_mode: 'HTML' });
+              
+              // Hentikan pemantauan
+              clearActiveSession(chatId);
+            }
+          } catch (pollErr) {
+            console.error(`[${email}] Error saat polling EmailQu:`, pollErr.message);
+          }
+        }, 8000);
+
+        // Setup timeout (3 menit = 180000 ms)
+        const timeoutId = setTimeout(() => {
+          bot.sendMessage(chatId, `⚠️ <b>Waktu Pemantauan Habis</b>\n\nBot telah memantau email <code>${email}</code> selama 3 menit dan tidak menemukan link baru. Silakan kirim email lagi jika ingin memantau ulang.`, { parse_mode: 'HTML' });
+          clearActiveSession(chatId);
+        }, 180000);
+
+        // Simpan session
+        sessions[chatId] = {
+          intervalId,
+          timeoutId,
+          email,
+          existingEmailId
+        };
+
+      } else {
+        // --- JALUR GENERATOR.EMAIL ---
+        const result = await fetchNewestAlightLink(user, domain, null);
+        
+        if (result.link) {
+          // Jika langsung menemukan link, kirimkan segera dan selesai!
+          bot.sendMessage(chatId, `✅ <b>Link Login Alight Motion Ditemukan!</b>\n\n<b>1. Klik untuk Langsung Login:</b>\n<a href="${result.link}">👉 Klik di Sini untuk Login</a>\n\n<b>2. Klik untuk Salin Link (Auto Copy):</b>\n<code>${result.link}</code>\n\n⚠️ <i>Catatan: Jika link di atas kadaluarsa atau tidak bekerja, silakan lakukan permintaan login baru di aplikasi Alight Motion, lalu kirim kembali alamat email kamu ke bot ini.</i>`, { parse_mode: 'HTML' });
+          return;
+        }
+
+        // Jika belum ada link, masuk ke mode pemantauan (polling) selama 3 menit
+        bot.sendMessage(chatId, `🔍 <b>Link login belum ditemukan di inbox.</b>\n\nMemulai pemantauan untuk: <code>${email}</code> (via GeneratorEmail)\nBot akan memantau inbox selama 3 menit. Silakan lakukan permintaan login di aplikasi Alight Motion sekarang...`, { parse_mode: 'HTML' });
+
+        // Catat hash yang sudah ada (biar diabaikan saat polling)
+        const existingHashes = new Set();
+        if (result.newestHash) {
+          existingHashes.add(result.newestHash);
+        }
+
+        // Setup polling interval (setiap 8 detik)
+        const intervalId = setInterval(async () => {
+          try {
+            // Cari link baru dengan mengabaikan hash lama
+            const pollResult = await fetchNewestAlightLink(user, domain, existingHashes);
+
+            if (pollResult.link) {
+              // Berhasil menemukan link baru!
+              bot.sendMessage(chatId, `✅ <b>Link Login Alight Motion Ditemukan!</b>\n\n<b>1. Klik untuk Langsung Login:</b>\n<a href="${pollResult.link}">👉 Klik di Sini untuk Login</a>\n\n<b>2. Klik untuk Salin Link (Auto Copy):</b>\n<code>${pollResult.link}</code>`, { parse_mode: 'HTML' });
+              
+              // Hentikan pemantauan
+              clearActiveSession(chatId);
+            } else if (pollResult.newestHash) {
+              // Jika ada hash baru tapi link tidak berhasil diekstrak, abaikan
+              existingHashes.add(pollResult.newestHash);
+            }
+          } catch (pollErr) {
+            console.error(`[${email}] Error saat polling GeneratorEmail:`, pollErr.message);
+          }
+        }, 8000);
+
+        // Setup timeout (3 menit = 180000 ms)
+        const timeoutId = setTimeout(() => {
+          bot.sendMessage(chatId, `⚠️ <b>Waktu Pemantauan Habis</b>\n\nBot telah memantau email <code>${email}</code> selama 3 menit dan tidak menemukan link baru. Silakan kirim email lagi jika ingin memantau ulang.`, { parse_mode: 'HTML' });
+          clearActiveSession(chatId);
+        }, 180000);
+
+        // Simpan session
+        sessions[chatId] = {
+          intervalId,
+          timeoutId,
+          email,
+          existingHashes
+        };
+      }
 
     } catch (err) {
-      console.error(`[${email}] Gagal mengakses generator.email:`, err);
-      bot.sendMessage(chatId, `❌ <b>Gagal mengakses generator.email:</b>\n<code>${err.message}</code>\n\nPastikan email yang dimasukkan benar dan coba lagi beberapa saat lagi.`, { parse_mode: 'HTML' });
+      console.error(`[${email}] Gagal memproses kotak masuk email:`, err);
+      bot.sendMessage(chatId, `❌ <b>Gagal mengakses kotak masuk email:</b>\n<code>${err.message}</code>\n\nPastikan alamat email benar dan coba lagi beberapa saat lagi.`, { parse_mode: 'HTML' });
     }
   } else {
     // Jika input bukan email dan bukan command
@@ -164,6 +215,62 @@ function clearActiveSession(chatId) {
     return true;
   }
   return false;
+}
+
+/**
+ * Cek apakah domain terdaftar di EmailQu
+ * @param {string} domain 
+ * @returns {Promise<'emailqu' | 'generator_email'>}
+ */
+async function checkEmailProvider(domain) {
+  try {
+    const url = `https://emailqu.com/api/domain/verify/${domain}`;
+    const resText = await fetchWithTimeout(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    }, 10000, 2); // 10s timeout, 2 retries
+    
+    const json = JSON.parse(resText);
+    if (json && json.success && json.verified === true) {
+      return 'emailqu';
+    }
+  } catch (err) {
+    console.warn(`Gagal verifikasi domain ${domain} ke EmailQu:`, err.message);
+  }
+  return 'generator_email';
+}
+
+/**
+ * Mengambil link login Alight Motion terbaru dari EmailQu
+ * @param {string} email 
+ * @returns {Promise<{ link: string | null, emailId: number | null }>}
+ */
+async function fetchNewestEmailQuLink(email) {
+  const url = `https://emailqu.com/api/public/emails/${encodeURIComponent(email)}`;
+  
+  const resText = await fetchWithTimeout(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+  }, 15000, 3); // 15s timeout, 3 retries
+  
+  const json = JSON.parse(resText);
+  if (json && json.success && json.emails && json.emails.length > 0) {
+    // Cari email dari Alight Motion
+    const alightEmail = json.emails.find(e => {
+      const from = (e.from || '').toLowerCase();
+      return from.includes('alight') || from.includes('firebaseapp');
+    });
+    
+    if (alightEmail) {
+      const content = alightEmail.body_html || alightEmail.body_text || '';
+      const links = extractAlightLinks(content);
+      return { link: links[0] || null, emailId: alightEmail.id };
+    }
+  }
+  
+  return { link: null, emailId: null };
 }
 
 /**
