@@ -1,4 +1,11 @@
-const TelegramBot = require('node-telegram-bot-api');
+let TelegramBot = require('node-telegram-bot-api');
+
+// Pastikan import constructor kompatibel dengan berbagai versi package
+if (TelegramBot.TelegramBot) {
+  TelegramBot = TelegramBot.TelegramBot;
+} else if (TelegramBot.default) {
+  TelegramBot = TelegramBot.default;
+}
 
 // Ambil token dari environment
 const token = process.env.TELEGRAM_BOT_TOKEN;
