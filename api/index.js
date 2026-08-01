@@ -158,7 +158,7 @@ async function fetchNewestAlightLink(user, domain, ignoreHashes) {
   const indexResult = await fetchFromMirrors(indexPath, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Cookie': `embx=%5B%22${user}%40${domain}%22%5D; surl=${domain}%2F${user}`,
+      'Cookie': `embx=%5B%22${user}%40${domain}%22%5D; surl=${domain}%2F${user}; inbox_ctx=${domain}%2F${user}`,
       'Referer': 'https://generator.email/',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
@@ -203,7 +203,7 @@ async function fetchNewestAlightLink(user, domain, ignoreHashes) {
   const emailHtml = await fetchWithTimeout(`${activeMirror}${emailPath}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Cookie': `embx=%5B%22${user}%40${domain}%22%5D; surl=${specificSurl}`,
+      'Cookie': `embx=%5B%22${user}%40${domain}%22%5D; surl=${specificSurl}; inbox_ctx=${specificSurl}`,
       'Referer': `${activeMirror}/`,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
