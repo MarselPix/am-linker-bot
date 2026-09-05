@@ -386,9 +386,21 @@ async function fetchNewestAlightLink(user, domain, ignoreHashes) {
     }
   }
 
-  // Jika tidak ditemukan email spesifik dari Alight di list
+  // Jika parser baris utama tidak menemukan, gunakan Fallback 1 (deteksi hash di sekitar kata kunci alight/firebase)
   if (alightHashes.length === 0) {
-    // Fallback: coba langsung ekstrak dari halaman utama
+    const fallbackRegex = /(?:[a-zA-Z0-9.\-_]+\/[a-zA-Z0-9.\-_]+\/([a-f0-9]{32}))[\s\S]{0,350}?(?:alight|firebaseapp)|(?:alight|firebaseapp)[\s\S]{0,350}?(?:[a-zA-Z0-9.\-_]+\/[a-zA-Z0-9.\-_]+\/([a-f0-9]{32}))/gi;
+    let fbMatch;
+    while ((fbMatch = fallbackRegex.exec(indexHtml)) !== null) {
+      const h = fbMatch[1] || fbMatch[2];
+      if (h && !alightHashes.includes(h)) {
+        alightHashes.push(h);
+      }
+    }
+  }
+
+  // Jika tetap tidak ditemukan email spesifik dari Alight di list
+  if (alightHashes.length === 0) {
+    // Fallback 2: coba langsung ekstrak dari halaman utama
     const links = extractAlightLinks(indexHtml);
     return { link: links[0] || null, newestHash: null };
   }
