@@ -169,17 +169,15 @@ async function fetchNewestAlightLink(user, domain, ignoreHashes) {
   const indexHtml = indexResult.text;
   const activeMirror = indexResult.usedMirror;
 
-  const rowRegex = /href=["'](\/[a-zA-Z0-9.\-_]+\/[a-zA-Z0-9.\-_]+\/[a-f0-9]{32})["'][^>]*>\s*<div class="[^"]*from_div_[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+  const rowRegex = /(?:href|onclick)=["'](?:loadInboxClientSide\()?['"]?\/?([a-zA-Z0-9.\-_]+\/[a-zA-Z0-9.\-_]+\/([a-f0-9]{32}))['"\)]*[^>]*>[\s\S]*?<div class="[^"]*from_div_[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
   
   let match;
   const alightHashes = [];
   while ((match = rowRegex.exec(indexHtml)) !== null) {
-    const path = match[1];
-    const sender = match[2].trim().toLowerCase();
+    const hash = match[2];
+    const sender = match[3].trim().toLowerCase();
     
     if (sender.includes('alight') || sender.includes('firebaseapp')) {
-      const parts = path.split('/');
-      const hash = parts[3];
       if (hash) {
         alightHashes.push(hash);
       }
